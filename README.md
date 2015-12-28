@@ -1,6 +1,6 @@
 Xbox ADPCM Converter
 ========
-A tool for converting WAV files from Xbox ADPCM to PCM and vise versa.
+A tool for converting WAV files from Xbox ADPCM to PCM and vice versa.
 
 ADPCM code by J.D.Medhurst (a.k.a. Tixy)
 
