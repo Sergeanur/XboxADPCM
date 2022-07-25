@@ -17,6 +17,9 @@ For example, if input file is PCM format, the output file will be Xbox ADPCM for
 Changelog
 --------
 
+**Version 1.2**
+* WAV reader updated to support files with uncommon chunk order
+
 **Version 1.1**
 * IMA ADPCM implementation rewritten
 * Code refactored using C++ 17 features
