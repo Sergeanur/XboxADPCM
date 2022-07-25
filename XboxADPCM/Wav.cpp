@@ -1,14 +1,58 @@
 #include "stdafx.h"
 #include "Wav.h"
 
-std::tuple<RIFFHeader, FMTHeader, ExtraADPCM, DATAHeader> GenerateWAVHeader(eWavFormat format, uint32_t samplerate, uint16_t numChannels, uint32_t size)
+void CWavFile::ReadFromFile(const std::filesystem::path& path)
 {
-	ExtraADPCM extra(2, ENCODED_SAMPLES_IN_ADPCM_BLOCK);
-	DATAHeader datah(size);
-	FMTHeader fmth(format, numChannels, samplerate);
-	RIFFHeader riffh(size + sizeof(FMTHeader) + sizeof(DATAHeader) + sizeof(RIFFHeader::WaveId));
-	if (format == FMT_XBOX_ADPCM)
-		riffh.Size += sizeof(ExtraADPCM);
+	RiffFile.ReadFromFile(path);
 
-	return std::make_tuple(riffh, fmth, extra, datah);
+	if (!RiffFile.HasChunk(FMT_ID))
+		throw("fmt chunk missing in wav file!");
+	if (!RiffFile.HasChunk(DATA_ID))
+		throw("data chunk missing in wav file!");
+
+	Riff::tChunkData& fmt_data = RiffFile.GetChunkData(FMT_ID);
+
+	if (fmt_data.size() < sizeof(FMTHeaderBase))
+		throw("Size of fmt section is less than supported one!");
+
+	FMTHeaderBase* fmth = (FMTHeaderBase*)fmt_data.data();
+
+	Format = fmth->Format;
+	NumChannels = fmth->NumChannels;
+	SamplesPerSec = fmth->SamplesPerSec;
+
+	if (Format == FMT_PCM)
+	{
+		if (fmth->BitsPerSample != 16)
+			throw("Only 16 bit PCM is supported!");
+	}
+	else if (Format != FMT_XBOX_ADPCM)
+		throw("Unsupported format!");
+}
+
+void CWavFile::SaveToFile(const std::filesystem::path& path)
+{
+	Riff::tChunkData& fmt_data = RiffFile.GetChunkData(FMT_ID);
+
+	switch (Format)
+	{
+	case FMT_PCM:
+	{
+		fmt_data.resize(sizeof(FMTHeaderBase));
+		new (fmt_data.data())FMTHeaderBase(Format, NumChannels, SamplesPerSec);
+		break;
+	}
+	case FMT_XBOX_ADPCM:
+	{
+		fmt_data.resize(sizeof(FMTHeaderADPCM));
+		new (fmt_data.data())FMTHeaderADPCM(Format, NumChannels, SamplesPerSec);
+		break;
+	}
+	default:
+		assert(0);
+		break;
+	}
+
+	RiffFile.DeleteEmptyChunks();
+	RiffFile.WriteToFile(path);
 }

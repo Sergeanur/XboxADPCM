@@ -2,16 +2,8 @@
 #include "ImaADPCM.h"
 #include "Wav.h"
 
-enum
-{
-	ADPCM_INTERLEAVE_BYTES = 4,
-	ADPCM_INTERLEAVE_SAMPLES = ADPCM_INTERLEAVE_BYTES * 2,
-
-	ADPCM_BLOCK_BYTES = ENCODED_SAMPLES_IN_ADPCM_BLOCK / 2 + sizeof(CImaADPCM),
-};
-
 // convert to PCM
-size_t decode(uint8_t* adpcm, int16_t* pcm, size_t num_channels, size_t num_samples_per_channel)
+size_t decode(const uint8_t* adpcm, int16_t* pcm, size_t num_channels, size_t num_samples_per_channel)
 {
 	std::vector<CImaADPCM> Converters(num_channels);
 	size_t i = 0;
@@ -39,8 +31,15 @@ size_t decode(uint8_t* adpcm, int16_t* pcm, size_t num_channels, size_t num_samp
 	return i;
 }
 
+size_t decode(const std::vector<uint8_t>& adpcm, std::vector<uint8_t>& pcm, size_t num_channels, size_t num_samples_per_channel)
+{
+	if (pcm.size() < num_samples_per_channel * num_channels * sizeof(int16_t))
+		pcm.resize(num_samples_per_channel * num_channels * sizeof(int16_t), 0);
+	return decode(adpcm.data(), (int16_t*)pcm.data(), num_channels, num_samples_per_channel);
+}
+
 // convert to ADPCM
-size_t encode(int16_t* pcm, uint8_t* adpcm, size_t num_channels, size_t num_samples_per_channel)
+size_t encode(const int16_t* pcm, uint8_t* adpcm, size_t num_channels, size_t num_samples_per_channel)
 {
 	std::vector<CImaADPCM> Converters(num_channels);
 	size_t i = 0;
@@ -76,67 +75,44 @@ size_t encode(int16_t* pcm, uint8_t* adpcm, size_t num_channels, size_t num_samp
 	return i;
 }
 
+size_t encode(const std::vector<uint8_t>& pcm, std::vector<uint8_t>& adpcm, size_t num_channels, size_t num_samples_per_channel)
+{
+	size_t AdpcmSize = num_samples_per_channel / SAMPLES_IN_ADPCM_BLOCK * ADPCM_BLOCK_BYTES * num_channels;
+	if (adpcm.size() < AdpcmSize)
+		adpcm.resize(AdpcmSize, 0);
+	return encode((const int16_t*)pcm.data(), adpcm.data(), num_channels, num_samples_per_channel);
+}
+
 void convert(const std::filesystem::path& infile, std::filesystem::path& outfile)
 {
-	FILE* f = nullptr;
-	_wfopen_s(&f, infile.c_str(), L"rb");
+	CWavFile inwav, outwav;
 	printf("Input file: %S\n", infile.c_str());
-	if (!f) throw("Could not open input file!");
+	inwav.ReadFromFile(infile);
 
-	RIFFHeader riffh;
-	FMTHeader fmth;
-	DATAHeader datah;
+	switch (inwav.Format)
+	{
+	case FMT_PCM:
+		outwav.Format = FMT_XBOX_ADPCM;
+		printf("Converting PCM -> Xbox ADPCM\n");
+		break;
+	case FMT_XBOX_ADPCM:
+		outwav.Format = FMT_PCM;
+		printf("Converting Xbox ADPCM -> PCM\n");
+		break;
+	default:
+		break;
+	}
 
-	fread(&riffh, sizeof(RIFFHeader), 1, f);
-	if (riffh.RiffId != RIFF_ID) throw("Incorrect RIFF header!");
-	if (riffh.WaveId != WAVE_ID) throw("Incorrect WAVE header!");
-
-	fread(&fmth, sizeof(FMTHeader), 1, f);
-	if (fmth.FmtId != FMT_ID) throw("Incorrect fmt header!");
+	outwav.NumChannels = inwav.NumChannels;
+	outwav.SamplesPerSec = inwav.SamplesPerSec;
 
 	if (outfile.empty())
-	{
-		if (fmth.Format == FMT_PCM)
-			outfile.replace_filename(infile.stem().wstring() + L"_adpcm.wav");
-		else
-			outfile.replace_filename(infile.stem().wstring() + L"_pcm.wav");
-	}
+		outfile.replace_filename(infile.stem().wstring() + (inwav.Format == FMT_PCM ? L"_adpcm.wav" : L"_pcm.wav"));
 	printf("Output file: %S\n\n", outfile.c_str());
 
-	if (fmth.Format == FMT_XBOX_ADPCM)
+	if (inwav.Format == FMT_PCM) // converting PCM to Xbox ADPCM
 	{
-		printf("Converting Xbox ADPCM -> PCM\n");
-		//ExtraADPCM e;
-		//fread(&e, sizeof(ExtraADPCM), 1, f);
-		fseek(f, sizeof(ExtraADPCM), SEEK_CUR);
-	}
-	else if (fmth.Format == FMT_PCM)
-	{
-		printf("Converting PCM -> Xbox ADPCM\n");
-		if (fmth.BitsPerSample != 16) throw("Only 16 bit PCM is supported!");
-	}
-	else throw("Incorrect format!");
-
-	fread(&datah, sizeof(DATAHeader), 1, f);
-
-	if (datah.DataId != DATA_ID)
-	{
-		if (datah.DataId == 'tcaf')
-		{
-			fseek(f, datah.ChunkSize, SEEK_CUR);
-			fread(&datah, sizeof(DATAHeader), 1, f);
-			if (datah.DataId != DATA_ID)
-				throw("Incorrect data header!");
-		}
-		else throw("Incorrect data or fact header!");
-	}
-
-	std::vector<uint8_t> buf_adpcm;
-	std::vector<int16_t> buf_pcm;
-
-	if (fmth.Format == FMT_PCM) // converting PCM to Xbox ADPCM
-	{
-		size_t SamplesCount = datah.ChunkSize / (sizeof(int16_t) * fmth.NumChannels);
+		size_t SamplesCount = inwav.GetSampleData().size() / (sizeof(int16_t) * inwav.NumChannels);
 		printf("Number of samples per channel: %i\n", SamplesCount);
 
 		size_t extraSamples = SamplesCount % SAMPLES_IN_ADPCM_BLOCK;
@@ -145,62 +121,21 @@ void convert(const std::filesystem::path& infile, std::filesystem::path& outfile
 			extraSamples = SAMPLES_IN_ADPCM_BLOCK - extraSamples;
 			SamplesCount += extraSamples;
 			printf("Allocating extra samples: %i\n", extraSamples);
+			inwav.GetSampleData().resize(SamplesCount * sizeof(int16_t), 0);
 		}
 
-		size_t AdpcmSize = SamplesCount / SAMPLES_IN_ADPCM_BLOCK * ADPCM_BLOCK_BYTES * fmth.NumChannels;
-
-		buf_adpcm.resize(AdpcmSize, 0);
-		buf_pcm.resize(SamplesCount * fmth.NumChannels, 0);
-
-		fread(buf_pcm.data(), 1, datah.ChunkSize, f);
-		fclose(f);
-
-		encode(buf_pcm.data(), buf_adpcm.data(), fmth.NumChannels, SamplesCount);
-
-		_wfopen_s(&f, outfile.c_str(), L"wb");
-
-		if (!f) throw("Could not create an output file!");
-
-		auto wavHeader = GenerateWAVHeader(FMT_XBOX_ADPCM, fmth.SamplesPerSec, fmth.NumChannels, AdpcmSize);
-
-#define write_header_to_file(i) fwrite(&std::get<i>(wavHeader), sizeof(std::get<i>(wavHeader)), 1, f)
-
-		write_header_to_file(0); // riff
-		write_header_to_file(1); // fmt
-		write_header_to_file(2); // extra adpcm
-		write_header_to_file(3); // data
-
-		fwrite(buf_adpcm.data(), 1, AdpcmSize, f);
-		fclose(f);
+		encode(inwav.GetSampleData(), outwav.GetSampleData(), inwav.NumChannels, SamplesCount);
+		outwav.SaveToFile(outfile);
 
 		printf("Converting to Xbox ADPCM - DONE!\n");
 	}
-	else if (fmth.Format == FMT_XBOX_ADPCM) // converting Xbox ADPCM to PCM
+	else if (inwav.Format == FMT_XBOX_ADPCM) // converting Xbox ADPCM to PCM
 	{
-		size_t SamplesCount = fmth.NumChannels * SAMPLES_IN_ADPCM_BLOCK * (datah.ChunkSize / (ADPCM_BLOCK_BYTES * fmth.NumChannels));
+		size_t SamplesCount = SAMPLES_IN_ADPCM_BLOCK * (inwav.GetSampleData().size() / (ADPCM_BLOCK_BYTES * inwav.NumChannels));
+		printf("Number of samples per channel: %i\n", SamplesCount);
 
-		buf_adpcm.resize(datah.ChunkSize);
-		buf_pcm.resize(SamplesCount);
-
-		fread(buf_adpcm.data(), 1, datah.ChunkSize, f);
-		fclose(f);
-
-		decode(buf_adpcm.data(), buf_pcm.data(), fmth.NumChannels, SamplesCount / fmth.NumChannels);
-
-		auto wavHeader = GenerateWAVHeader(FMT_PCM, fmth.SamplesPerSec, fmth.NumChannels, buf_pcm.size() * sizeof(int16_t));
-
-		_wfopen_s(&f, outfile.c_str(), L"wb");
-
-		if (!f) throw("Could not create an output file!");
-
-		write_header_to_file(0); // riff
-		write_header_to_file(1); // fmt
-		write_header_to_file(3); // data
-
-#undef write_header_to_file
-
-		fwrite(buf_pcm.data(), sizeof(int16_t), buf_pcm.size(), f);
-		fclose(f);
+		decode(inwav.GetSampleData(), outwav.GetSampleData(), inwav.NumChannels, SamplesCount);
+		outwav.SaveToFile(outfile);
 
 		printf("Converting to PCM - DONE!\n");
 	}

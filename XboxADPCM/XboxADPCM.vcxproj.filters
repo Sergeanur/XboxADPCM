@@ -4,11 +4,13 @@
     <ClInclude Include="ImaADPCM.h" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="Wav.h" />
+    <ClInclude Include="Riff.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="ImaADPCM.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="stdafx.cpp" />
     <ClCompile Include="Wav.cpp" />
+    <ClCompile Include="Riff.cpp" />
   </ItemGroup>
 </Project>

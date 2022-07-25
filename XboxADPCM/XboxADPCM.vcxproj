@@ -81,12 +81,14 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="ImaADPCM.h" />
+    <ClInclude Include="Riff.h" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="Wav.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="ImaADPCM.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="Riff.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
